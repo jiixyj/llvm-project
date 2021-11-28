@@ -117,12 +117,6 @@ static void __libcpp_contention_notify(__cxx_atomic_contention_t volatile* __con
         // We only call 'wake' if we consumed a contention bit here.
         __libcpp_platform_wake_by_address(__platform_state, __notify_one);
 }
-static __cxx_contention_t __libcpp_contention_monitor_for_wait(__cxx_atomic_contention_t volatile* __contention_state,
-                                                               __cxx_atomic_contention_t const volatile* __platform_state)
-{
-    // We will monitor this value.
-    return __cxx_atomic_load(__platform_state, memory_order_acquire);
-}
 static void __libcpp_contention_wait(__cxx_atomic_contention_t volatile* __contention_state,
                                      __cxx_atomic_contention_t const volatile* __platform_state,
                                      __cxx_contention_t __old_value)
@@ -155,7 +149,7 @@ _LIBCPP_EXPORTED_FROM_ABI
 __cxx_contention_t __libcpp_atomic_monitor(void const volatile* __location)
 {
     auto const __entry = __libcpp_contention_state(__location);
-    return __libcpp_contention_monitor_for_wait(&__entry->__contention_state, &__entry->__platform_state);
+    return __cxx_atomic_load(&__entry->__platform_state, memory_order_acquire);
 }
 _LIBCPP_EXPORTED_FROM_ABI
 void __libcpp_atomic_wait(void const volatile* __location, __cxx_contention_t __old_value)
@@ -180,7 +174,7 @@ void __cxx_atomic_notify_all(__cxx_atomic_contention_t const volatile* __locatio
 _LIBCPP_EXPORTED_FROM_ABI
 __cxx_contention_t __libcpp_atomic_monitor(__cxx_atomic_contention_t const volatile* __location)
 {
-    return __libcpp_contention_monitor_for_wait(&__libcpp_contention_state(__location)->__contention_state, __location);
+    return __cxx_atomic_load(__location, memory_order_acquire);
 }
 _LIBCPP_EXPORTED_FROM_ABI
 void __libcpp_atomic_wait(__cxx_atomic_contention_t const volatile* __location, __cxx_contention_t __old_value)

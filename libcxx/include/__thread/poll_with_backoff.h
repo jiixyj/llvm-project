@@ -31,12 +31,13 @@ static _LIBCPP_CONSTEXPR const int __libcpp_polling_count = 64;
 //
 // - __max_elapsed is the maximum duration to try polling for. If the maximum duration is exceeded,
 //   the polling loop will return false to report a timeout.
-template<class _Fn, class _BFn>
+template<class _Atp, class _Fn, class _Mo, class _BFn>
 _LIBCPP_AVAILABILITY_SYNC _LIBCPP_HIDE_FROM_ABI
-bool __libcpp_thread_poll_with_backoff(_Fn&& __f, _BFn&& __bf, chrono::nanoseconds __max_elapsed = chrono::nanoseconds::zero()) {
+bool __libcpp_thread_poll_with_backoff(_Atp *__a, _Fn&& __f, _Mo __order, _BFn&& __bf, chrono::nanoseconds __max_elapsed = chrono::nanoseconds::zero()) {
     auto const __start = chrono::high_resolution_clock::now();
     for (int __count = 0;;) {
-      if (__f())
+      auto __current_val = __cxx_atomic_load(__a, __order);
+      if (__f(__current_val))
         return true; // _Fn completion means success
       if (__count < __libcpp_polling_count) {
         __count += 1;
@@ -45,7 +46,7 @@ bool __libcpp_thread_poll_with_backoff(_Fn&& __f, _BFn&& __bf, chrono::nanosecon
       chrono::nanoseconds const __elapsed = chrono::high_resolution_clock::now() - __start;
       if (__max_elapsed != chrono::nanoseconds::zero() && __max_elapsed < __elapsed)
           return false; // timeout failure
-      if (__bf(__elapsed))
+      if (__bf(__elapsed, __current_val))
         return false; // _BFn completion means failure
     }
 }
