@@ -73,6 +73,22 @@ constexpr bool test() {
     assert(e.value() == 10);
   }
 
+  // Test that `expected` has no tail padding.
+  {
+    struct BoolWithPadding {
+      explicit operator bool() { return b; }
+
+    private:
+      alignas(4) bool b = false;
+    };
+
+    static_assert(sizeof(std::expected<BoolWithPadding, bool>) ==
+                  std::__libcpp_datasizeof<std::expected<BoolWithPadding, bool>>::value);
+
+    static_assert(sizeof(std::expected<void, BoolWithPadding>) ==
+                  std::__libcpp_datasizeof<std::expected<void, BoolWithPadding>>::value);
+  }
+
   return true;
 }
 
