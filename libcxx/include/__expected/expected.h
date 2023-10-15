@@ -18,6 +18,7 @@
 #include <__memory/addressof.h>
 #include <__memory/construct_at.h>
 #include <__type_traits/conjunction.h>
+#include <__type_traits/datasizeof.h>
 #include <__type_traits/disjunction.h>
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/is_assignable.h>
@@ -942,8 +943,17 @@ private:
     _LIBCPP_NO_UNIQUE_ADDRESS _ErrorType __unex_;
   };
 
+  _LIBCPP_HIDE_FROM_ABI static constexpr auto __calculate_padding() {
+    struct __calc_expected {
+      _LIBCPP_NO_UNIQUE_ADDRESS __union_t<_Tp, _Err> __union_;
+      bool __has_val_;
+    };
+    return sizeof(__calc_expected) - __libcpp_datasizeof<__calc_expected>::value;
+  }
+
   _LIBCPP_NO_UNIQUE_ADDRESS __union_t<_Tp, _Err> __union_;
   bool __has_val_;
+  char __padding_[__calculate_padding()]{};
 };
 
 template <class _Tp, class _Err>
@@ -1539,8 +1549,18 @@ private:
     _LIBCPP_NO_UNIQUE_ADDRESS _ErrorType __unex_;
   };
 
+
+  _LIBCPP_HIDE_FROM_ABI static constexpr auto __calculate_padding() {
+    struct __calc_expected {
+      _LIBCPP_NO_UNIQUE_ADDRESS __union_t<_Err> __union_;
+      bool __has_val_;
+    };
+    return sizeof(__calc_expected) - __libcpp_datasizeof<__calc_expected>::value;
+  }
+
   _LIBCPP_NO_UNIQUE_ADDRESS __union_t<_Err> __union_;
   bool __has_val_;
+  char __padding_[__calculate_padding()]{};
 };
 
 _LIBCPP_END_NAMESPACE_STD
