@@ -73,6 +73,31 @@ constexpr bool test() {
     assert(e.value() == 10);
   }
 
+  // Test that emplacing a value will not clobber the bytes
+  // in the tail padding.
+  {
+    struct BoolWithPadding {
+      explicit operator bool() { return b; }
+
+    private:
+      alignas(4) bool b = false;
+    };
+
+    struct T {
+      [[no_unique_address]] std::expected<BoolWithPadding, bool> clob{std::unexpect};
+      bool important1 = true;
+      bool important2 = true;
+    };
+
+    static_assert(sizeof(BoolWithPadding) == sizeof(T));
+
+    T t;
+    t.clob.emplace();
+
+    assert(t.important1);
+    assert(t.important2);
+  }
+
   return true;
 }
 

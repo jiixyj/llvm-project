@@ -21,6 +21,7 @@
 #include <__type_traits/disjunction.h>
 #include <__type_traits/integral_constant.h>
 #include <__type_traits/is_assignable.h>
+#include <__type_traits/is_constant_evaluated.h>
 #include <__type_traits/is_constructible.h>
 #include <__type_traits/is_convertible.h>
 #include <__type_traits/is_copy_assignable.h>
@@ -87,6 +88,30 @@ _LIBCPP_HIDE_FROM_ABI void __throw_bad_expected_access(_Arg&& __arg) {
   _LIBCPP_VERBOSE_ABORT("bad_expected_access was thrown in -fno-exceptions mode");
 #  endif
 }
+
+template <class _Ex, class _Tp>
+struct _LIBCPP_HIDE_FROM_ABI __expected_bytes_saver {
+  explicit __expected_bytes_saver(void *__val_begin, void *__val_end)
+      : __val_end_(__val_end), __size_([&]{
+          auto __size = reinterpret_cast<char*>(__val_begin) + sizeof(_Tp) -
+              reinterpret_cast<char*>(__val_end_);
+          return __size < 0 ? 0 : __size;
+        }()) {
+    __builtin_memcpy(__pad_, __val_end_, __size_);
+  }
+
+  ~__expected_bytes_saver() {
+    __builtin_memcpy(__val_end_, __pad_, __size_);
+  }
+
+private:
+  void *__val_end_;
+  size_t __size_;
+  _LIBCPP_DIAGNOSTIC_PUSH
+  _LIBCPP_CLANG_DIAGNOSTIC_IGNORED("-Winvalid-offsetof")
+  unsigned char __pad_[sizeof(_Ex) - offsetof(_Ex, __has_val_)];
+  _LIBCPP_DIAGNOSTIC_POP
+};
 
 template <class _Tp, class _Err>
 class expected {
@@ -252,32 +277,32 @@ public:
     requires(!is_trivially_destructible_v<_Tp> || !is_trivially_destructible_v<_Err>)
   {
     if (__has_val_) {
-      std::destroy_at(std::addressof(__union_.__val_));
+      __destroy_value();
     } else {
-      std::destroy_at(std::addressof(__union_.__unex_));
+      __destroy_error();
     }
   }
 
 private:
   template <class _T1, class _T2, class... _Args>
-  _LIBCPP_HIDE_FROM_ABI static constexpr void __reinit_expected(_T1& __newval, _T2& __oldval, _Args&&... __args) {
+  _LIBCPP_HIDE_FROM_ABI constexpr void __reinit_expected(_T1& __newval, _T2& __oldval, _Args&&... __args) {
     if constexpr (is_nothrow_constructible_v<_T1, _Args...>) {
-      std::destroy_at(std::addressof(__oldval));
-      std::construct_at(std::addressof(__newval), std::forward<_Args>(__args)...);
+      __destroy_payload(std::addressof(__oldval));
+      __construct_payload(std::addressof(__newval), std::forward<_Args>(__args)...);
     } else if constexpr (is_nothrow_move_constructible_v<_T1>) {
       _T1 __tmp(std::forward<_Args>(__args)...);
-      std::destroy_at(std::addressof(__oldval));
-      std::construct_at(std::addressof(__newval), std::move(__tmp));
+      __destroy_payload(std::addressof(__oldval));
+      __construct_payload(std::addressof(__newval), std::move(__tmp));
     } else {
       static_assert(
           is_nothrow_move_constructible_v<_T2>,
           "To provide strong exception guarantee, T2 has to satisfy `is_nothrow_move_constructible_v` so that it can "
           "be reverted to the previous state in case an exception is thrown during the assignment.");
       _T2 __tmp(std::move(__oldval));
-      std::destroy_at(std::addressof(__oldval));
+      __destroy_payload(std::addressof(__oldval));
       auto __trans =
-          std::__make_exception_guard([&] { std::construct_at(std::addressof(__oldval), std::move(__tmp)); });
-      std::construct_at(std::addressof(__newval), std::forward<_Args>(__args)...);
+          std::__make_exception_guard([&] { __construct_payload(std::addressof(__oldval), std::move(__tmp)); });
+      __construct_payload(std::addressof(__newval), std::forward<_Args>(__args)...);
       __trans.__complete();
     }
   }
@@ -396,28 +421,25 @@ public:
     requires is_nothrow_constructible_v<_Tp, _Args...>
   _LIBCPP_HIDE_FROM_ABI constexpr _Tp& emplace(_Args&&... __args) noexcept {
     if (__has_val_) {
-      std::destroy_at(std::addressof(__union_.__val_));
+      __destroy_value();
     } else {
-      std::destroy_at(std::addressof(__union_.__unex_));
+      __destroy_error();
+      __has_val_ = true;
     }
-    std::construct_at(std::addressof(__union_.__val_), std::forward<_Args>(__args)...);
-    __has_val_ = true;
-    return *std::addressof(__union_.__val_);
+    return *__construct_value(std::forward<_Args>(__args)...);
   }
 
   template <class _Up, class... _Args>
     requires is_nothrow_constructible_v< _Tp, initializer_list<_Up>&, _Args... >
   _LIBCPP_HIDE_FROM_ABI constexpr _Tp& emplace(initializer_list<_Up> __il, _Args&&... __args) noexcept {
     if (__has_val_) {
-      std::destroy_at(std::addressof(__union_.__val_));
+      __destroy_value();
     } else {
-      std::destroy_at(std::addressof(__union_.__unex_));
+      __destroy_error();
+      __has_val_ = true;
     }
-    std::construct_at(std::addressof(__union_.__val_), __il, std::forward<_Args>(__args)...);
-    __has_val_ = true;
-    return *std::addressof(__union_.__val_);
+    return *__construct_value(__il, std::forward<_Args>(__args)...);
   }
-
 
 public:
   // [expected.object.swap], swap
@@ -433,30 +455,30 @@ public:
              (is_nothrow_move_constructible_v<_Tp> ||
               is_nothrow_move_constructible_v<_Err>))
   {
-    auto __swap_val_unex_impl = [&](expected& __with_val, expected& __with_err) {
+    auto __swap_val_unex_impl = [](expected& __with_val, expected& __with_err) {
       if constexpr (is_nothrow_move_constructible_v<_Err>) {
         _Err __tmp(std::move(__with_err.__union_.__unex_));
-        std::destroy_at(std::addressof(__with_err.__union_.__unex_));
+        __with_err.__destroy_error();
         auto __trans = std::__make_exception_guard([&] {
-          std::construct_at(std::addressof(__with_err.__union_.__unex_), std::move(__tmp));
+          __with_err.__construct_error(std::move(__tmp));
         });
-        std::construct_at(std::addressof(__with_err.__union_.__val_), std::move(__with_val.__union_.__val_));
+        __with_err.__construct_value(std::move(__with_val.__union_.__val_));
         __trans.__complete();
-        std::destroy_at(std::addressof(__with_val.__union_.__val_));
-        std::construct_at(std::addressof(__with_val.__union_.__unex_), std::move(__tmp));
+        __with_val.__destroy_value();
+        __with_val.__construct_error(std::move(__tmp));
       } else {
         static_assert(is_nothrow_move_constructible_v<_Tp>,
                       "To provide strong exception guarantee, Tp has to satisfy `is_nothrow_move_constructible_v` so "
                       "that it can be reverted to the previous state in case an exception is thrown during swap.");
         _Tp __tmp(std::move(__with_val.__union_.__val_));
-        std::destroy_at(std::addressof(__with_val.__union_.__val_));
+        __with_val.__destroy_value();
         auto __trans = std::__make_exception_guard([&] {
-          std::construct_at(std::addressof(__with_val.__union_.__val_), std::move(__tmp));
+          __with_val.__construct_value(std::move(__tmp));
         });
-        std::construct_at(std::addressof(__with_val.__union_.__unex_), std::move(__with_err.__union_.__unex_));
+        __with_val.__construct_error(std::move(__with_err.__union_.__unex_));
         __trans.__complete();
-        std::destroy_at(std::addressof(__with_err.__union_.__unex_));
-        std::construct_at(std::addressof(__with_err.__union_.__val_), std::move(__tmp));
+        __with_err.__destroy_error();
+        __with_err.__construct_value(std::move(__tmp));
       }
       __with_val.__has_val_ = false;
       __with_err.__has_val_ = true;
@@ -948,6 +970,43 @@ private:
       return __union_t<_Tp, _Err>(std::unexpect, std::move(__other.__union_.__unex_));
   }
 
+  template <class, class>
+  friend struct __expected_bytes_saver;
+
+  template <class _Up, class... _Args>
+  constexpr _Up* __construct_payload(_Up* __ptr, _Args&&... __args) {
+    if (std::is_constant_evaluated())
+      return std::construct_at(__ptr, std::forward<_Args>(__args)...);
+    else {
+      __expected_bytes_saver<expected, _Up> __saver(__ptr, &__has_val_);
+      return std::construct_at(__ptr, std::forward<_Args>(__args)...);
+    }
+  }
+  template <class... _Args>
+  constexpr auto* __construct_value(_Args&&... __args) {
+    return __construct_payload(std::addressof(__union_.__val_), std::forward<_Args>(__args)...);
+  }
+  template <class... _Args>
+  constexpr auto* __construct_error(_Args&&... __args) {
+    return __construct_payload(std::addressof(__union_.__unex_), std::forward<_Args>(__args)...);
+  }
+
+  template <class _Up>
+  constexpr void __destroy_payload(_Up *__ptr) {
+    if (std::is_constant_evaluated())
+      std::destroy_at(__ptr);
+    else {
+      __expected_bytes_saver<expected, _Up> __saver(__ptr, &__has_val_);
+      std::destroy_at(__ptr);
+    }
+  }
+  constexpr void __destroy_value() {
+    __destroy_payload(std::addressof(__union_.__val_));
+  }
+  constexpr void __destroy_error() {
+    __destroy_payload(std::addressof(__union_.__unex_));
+  }
+
   _LIBCPP_NO_UNIQUE_ADDRESS __union_t<_Tp, _Err> __union_;
   bool __has_val_;
 };
@@ -1067,7 +1126,7 @@ public:
     requires(!is_trivially_destructible_v<_Err>)
   {
     if (!__has_val_) {
-      std::destroy_at(std::addressof(__union_.__unex_));
+      __destroy_error();
     }
   }
 
@@ -1081,12 +1140,12 @@ public:
   {
     if (__has_val_) {
       if (!__rhs.__has_val_) {
-        std::construct_at(std::addressof(__union_.__unex_), __rhs.__union_.__unex_);
+        __construct_payload(std::addressof(__union_.__unex_), __rhs.__union_.__unex_);
         __has_val_ = false;
       }
     } else {
       if (__rhs.__has_val_) {
-        std::destroy_at(std::addressof(__union_.__unex_));
+        __destroy_error();
         __has_val_ = true;
       } else {
         __union_.__unex_ = __rhs.__union_.__unex_;
@@ -1105,12 +1164,12 @@ public:
   {
     if (__has_val_) {
       if (!__rhs.__has_val_) {
-        std::construct_at(std::addressof(__union_.__unex_), std::move(__rhs.__union_.__unex_));
+        __construct_error(std::move(__rhs.__union_.__unex_));
         __has_val_ = false;
       }
     } else {
       if (__rhs.__has_val_) {
-        std::destroy_at(std::addressof(__union_.__unex_));
+        __destroy_error();
         __has_val_ = true;
       } else {
         __union_.__unex_ = std::move(__rhs.__union_.__unex_);
@@ -1123,7 +1182,7 @@ public:
     requires(is_constructible_v<_Err, const _OtherErr&> && is_assignable_v<_Err&, const _OtherErr&>)
   _LIBCPP_HIDE_FROM_ABI constexpr expected& operator=(const unexpected<_OtherErr>& __un) {
     if (__has_val_) {
-      std::construct_at(std::addressof(__union_.__unex_), __un.error());
+      __construct_error(__un.error());
       __has_val_ = false;
     } else {
       __union_.__unex_ = __un.error();
@@ -1135,7 +1194,7 @@ public:
     requires(is_constructible_v<_Err, _OtherErr> && is_assignable_v<_Err&, _OtherErr>)
   _LIBCPP_HIDE_FROM_ABI constexpr expected& operator=(unexpected<_OtherErr>&& __un) {
     if (__has_val_) {
-      std::construct_at(std::addressof(__union_.__unex_), std::move(__un.error()));
+      __construct_error(std::move(__un.error()));
       __has_val_ = false;
     } else {
       __union_.__unex_ = std::move(__un.error());
@@ -1145,7 +1204,7 @@ public:
 
   _LIBCPP_HIDE_FROM_ABI constexpr void emplace() noexcept {
     if (!__has_val_) {
-      std::destroy_at(std::addressof(__union_.__unex_));
+      __destroy_error();
       __has_val_ = true;
     }
   }
@@ -1155,9 +1214,9 @@ public:
     noexcept(is_nothrow_move_constructible_v<_Err> && is_nothrow_swappable_v<_Err>)
     requires(is_swappable_v<_Err> && is_move_constructible_v<_Err>)
   {
-    auto __swap_val_unex_impl = [&](expected& __with_val, expected& __with_err) {
-      std::construct_at(std::addressof(__with_val.__union_.__unex_), std::move(__with_err.__union_.__unex_));
-      std::destroy_at(std::addressof(__with_err.__union_.__unex_));
+    auto __swap_val_unex_impl = [](expected& __with_val, expected& __with_err) {
+      __with_val.__construct_error(std::move(__with_err.__union_.__unex_));
+      __with_err.__destroy_error();
       __with_val.__has_val_ = false;
       __with_err.__has_val_ = true;
     };
@@ -1543,6 +1602,36 @@ private:
       return __union_t<_Err>();
     else
       return __union_t<_Err>(std::unexpect, std::move(__other.__union_.__unex_));
+  }
+
+  template <class, class>
+  friend struct __expected_bytes_saver;
+
+  template <class _Up, class... _Args>
+  constexpr _Up* __construct_payload(_Up* __ptr, _Args&&... __args) {
+    if (std::is_constant_evaluated())
+      return std::construct_at(__ptr, std::forward<_Args>(__args)...);
+    else {
+      __expected_bytes_saver<expected, _Up> __saver(__ptr, &__has_val_);
+      return std::construct_at(__ptr, std::forward<_Args>(__args)...);
+    }
+  }
+  template <class... _Args>
+  constexpr auto* __construct_error(_Args&&... __args) {
+    return __construct_payload(std::addressof(__union_.__unex_), std::forward<_Args>(__args)...);
+  }
+
+  template <class _Up>
+  constexpr void __destroy_payload(_Up *__ptr) {
+    if (std::is_constant_evaluated())
+      std::destroy_at(__ptr);
+    else {
+      __expected_bytes_saver<expected, _Up> __saver(__ptr, &__has_val_);
+      std::destroy_at(__ptr);
+    }
+  }
+  constexpr void __destroy_error() {
+    __destroy_payload(std::addressof(__union_.__unex_));
   }
 
   _LIBCPP_NO_UNIQUE_ADDRESS __union_t<_Err> __union_;
