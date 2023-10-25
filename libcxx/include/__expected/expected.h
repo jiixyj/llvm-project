@@ -143,9 +143,18 @@ class __expected_base {
   // it's not clear that it's implementable, given that the function is allowed to clobber
   // the tail padding) - see https://github.com/itanium-cxx-abi/cxx-abi/issues/107.
   union __union_t {
-    _LIBCPP_HIDE_FROM_ABI constexpr __union_t(const __union_t&) = default;
-    _LIBCPP_HIDE_FROM_ABI constexpr __union_t(__union_t&&) = default;
+    _LIBCPP_HIDE_FROM_ABI constexpr __union_t(const __union_t&) = delete;
+    _LIBCPP_HIDE_FROM_ABI constexpr __union_t(const __union_t&)
+      requires(is_copy_constructible_v<_Tp> && is_copy_constructible_v<_Err> &&
+               is_trivially_copy_constructible_v<_Tp> && is_trivially_copy_constructible_v<_Err>)
+    = default;
+    _LIBCPP_HIDE_FROM_ABI constexpr __union_t(__union_t&&) = delete;
+    _LIBCPP_HIDE_FROM_ABI constexpr __union_t(__union_t&&)
+      requires(is_move_constructible_v<_Tp> && is_move_constructible_v<_Err> &&
+               is_trivially_move_constructible_v<_Tp> && is_trivially_move_constructible_v<_Err>)
+    = default;
     _LIBCPP_HIDE_FROM_ABI constexpr __union_t& operator=(const __union_t&) = delete;
+    _LIBCPP_HIDE_FROM_ABI constexpr __union_t& operator=(__union_t&&) = delete;
 
     template <class... _Args>
     _LIBCPP_HIDE_FROM_ABI constexpr explicit __union_t(in_place_t, _Args&&... __args)
@@ -220,6 +229,7 @@ class __expected_base {
     = default;
 
     _LIBCPP_HIDE_FROM_ABI constexpr __repr& operator=(const __repr&) = delete;
+    _LIBCPP_HIDE_FROM_ABI constexpr __repr& operator=(__repr&&) = delete;
 
     _LIBCPP_HIDE_FROM_ABI constexpr ~__repr()
       requires(is_trivially_destructible_v<_Tp> && is_trivially_destructible_v<_Err>)
@@ -1081,9 +1091,16 @@ class __expected_void_base {
   // it's not clear that it's implementable, given that the function is allowed to clobber
   // the tail padding) - see https://github.com/itanium-cxx-abi/cxx-abi/issues/107.
   union __union_t {
-    _LIBCPP_HIDE_FROM_ABI constexpr __union_t(const __union_t&) = default;
-    _LIBCPP_HIDE_FROM_ABI constexpr __union_t(__union_t&&) = default;
+    _LIBCPP_HIDE_FROM_ABI constexpr __union_t(const __union_t&) = delete;
+    _LIBCPP_HIDE_FROM_ABI constexpr __union_t(const __union_t&)
+      requires(is_copy_constructible_v<_Err> && is_trivially_copy_constructible_v<_Err>)
+    = default;
+    _LIBCPP_HIDE_FROM_ABI constexpr __union_t(__union_t&&) = delete;
+    _LIBCPP_HIDE_FROM_ABI constexpr __union_t(__union_t&&)
+      requires(is_move_constructible_v<_Err> && is_trivially_move_constructible_v<_Err>)
+    = default;
     _LIBCPP_HIDE_FROM_ABI constexpr __union_t& operator=(const __union_t&) = delete;
+    _LIBCPP_HIDE_FROM_ABI constexpr __union_t& operator=(__union_t&&) = delete;
 
     _LIBCPP_HIDE_FROM_ABI constexpr explicit __union_t(in_place_t) : __empty_() {}
 
@@ -1145,6 +1162,7 @@ class __expected_void_base {
     = default;
 
     _LIBCPP_HIDE_FROM_ABI constexpr __repr& operator=(const __repr&) = delete;
+    _LIBCPP_HIDE_FROM_ABI constexpr __repr& operator=(__repr&&) = delete;
 
     _LIBCPP_HIDE_FROM_ABI constexpr ~__repr()
       requires(is_trivially_destructible_v<_Err>)
