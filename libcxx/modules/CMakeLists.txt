@@ -211,7 +211,7 @@ file(RELATIVE_PATH LIBCXX_MODULE_RELATIVE_PATH
   ${CMAKE_INSTALL_PREFIX}/${LIBCXX_INSTALL_MODULES_DIR})
 configure_file(
   "modules.json.in"
-  "${LIBCXX_LIBRARY_DIR}/libc++.modules.json"
+  "${LIBCXX_LIBRARY_DIR}/libc++experimental.modules.json"
   @ONLY
 )
 
@@ -229,6 +229,19 @@ if (LIBCXX_INSTALL_MODULES)
     )
   endforeach()
 
+  target_sources(cxx_experimental PRIVATE FILE_SET CXX_MODULES
+    BASE_DIRS
+      "${LIBCXX_GENERATED_MODULE_DIR}"
+    FILES
+      "${LIBCXX_GENERATED_MODULE_DIR}/std.cppm"
+      "${LIBCXX_GENERATED_MODULE_DIR}/std.compat.cppm"
+  )
+  set_source_files_properties(
+      "${LIBCXX_GENERATED_MODULE_DIR}/std.cppm"
+      "${LIBCXX_GENERATED_MODULE_DIR}/std.compat.cppm"
+    TARGET_DIRECTORY cxx_experimental
+    PROPERTIES COMPILE_OPTIONS "-U_LIBCPP_BUILDING_LIBRARY;-Wno-reserved-module-identifier")
+
   # Install the generated module files.
   install(FILES
       "${LIBCXX_GENERATED_MODULE_DIR}/std.cppm"
@@ -240,7 +253,7 @@ if (LIBCXX_INSTALL_MODULES)
 
   # Install the module manifest.
   install(FILES
-      "${LIBCXX_LIBRARY_DIR}/libc++.modules.json"
+      "${LIBCXX_LIBRARY_DIR}/libc++experimental.modules.json"
     DESTINATION "${LIBCXX_INSTALL_LIBRARY_DIR}"
     COMPONENT cxx-modules
     PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
